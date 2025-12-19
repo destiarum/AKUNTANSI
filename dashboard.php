@@ -30,22 +30,26 @@ function get_saldo($koneksi, $kode, $bulan = '', $tahun = '', $tipe_akun = '')
   $kredit = $r['k'] ?? 0;
 
   // 2. Get Opening Balance (Nominal) from Akun table
-  // NOTE: Opening balance is typically relevant for Balance Sheet accounts (Aset, Liabilitas, Ekuitas)
-  // For Income Statement (Pendapatan, Beban), it usually resets, but if 'nominal' represents
-  // a migrated balance, we should include it.
-  $qAkun = mysqli_query($koneksi, "SELECT nominal, saldo_normal FROM akun WHERE kode_akun='$kode'");
+  $qAkun = mysqli_query($koneksi, "SELECT nominal FROM akun WHERE kode_akun='$kode'");
   $rAkun = mysqli_fetch_assoc($qAkun);
-  $saldoAwal = $rAkun['nominal'] ?? 0;
+  $nominal = $rAkun['nominal'] ?? 0;
 
-  // If specific month/year is selected, opening balance logic can be complex (need rolled over balance).
-  // For simplicity in this simplified app, we assume 'nominal' is the starting balance at beginning of time.
-  // So it should be included.
+  $saldoAwal = 0;
 
-  // Normal Balance Logic
+  // Logic Saldo Awal (Sesuai Request User):
+  // - Tahun 2024 atau 'Semua Tahun': Include Nominal
+  // - Tahun lain (misal 2025): Exclude Nominal (Hanya Transaksi)
+  // Logic applied to all accounts to follow "2025 ok if only taking from transaction"
+  if ($tahun == '' || $tahun == '2024') {
+    $saldoAwal = $nominal;
+  }
+
+  // 3. Normal Balance Logic
+  // Aset & Beban: Debit Balance
+  // Liabilitas, Ekuitas, Pendapatan: Credit Balance
   if (in_array($tipe_akun, ['Aset', 'Beban'])) {
     return ($saldoAwal + $debit) - $kredit;
   } else {
-    // Liabilitas, Ekuitas, Pendapatan normally have Credit balance
     return ($saldoAwal + $kredit) - $debit;
   }
 }
@@ -53,6 +57,7 @@ function get_saldo($koneksi, $kode, $bulan = '', $tahun = '', $tipe_akun = '')
 function total_by_tipe($koneksi, $tipe, $bulan, $tahun)
 {
   $t = 0;
+  // Pastikan ambil tipe_akun yang sesuai untuk filtering strict
   $q = mysqli_query($koneksi, "SELECT kode_akun, tipe_akun FROM akun WHERE tipe_akun='$tipe'");
   while ($r = mysqli_fetch_assoc($q)) {
     $t += get_saldo($koneksi, $r['kode_akun'], $bulan, $tahun, $r['tipe_akun']);
