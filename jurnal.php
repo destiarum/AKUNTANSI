@@ -183,8 +183,8 @@ document.addEventListener("DOMContentLoaded", () => {
                         <?php } ?>
                     </select>
                 </td>
-                <td><input type="text" name="desc_debit[]"></td>
-                <td><input type="number" name="nominal_debit[]" class="debit" value="0" oninput="hitungTotal()" required></td>
+                <td><input type="text" name="desc_debit[]"></td> 
+                <td><input type="number" name="nominal_debit[]" class="debit" value="Rp" oninput="hitungTotal()" required></td>
             </tr>
             <tr>
                 <td colspan="2" class="total">TOTAL DEBIT</td>
@@ -209,7 +209,7 @@ document.addEventListener("DOMContentLoaded", () => {
                     </select>
                 </td>
                 <td><input type="text" name="desc_kredit[]"></td>
-                <td><input type="number" name="nominal_kredit[]" class="kredit" value="0" oninput="hitungTotal()" required></td>
+                <td><input type="number" name="nominal_kredit[]" class="kredit" value="" oninput="hitungTotal()" required></td>
             </tr>
             <tr>
                 <td colspan="2" class="total">TOTAL KREDIT</td>

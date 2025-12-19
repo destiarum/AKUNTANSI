@@ -2,39 +2,75 @@
 session_start();
 include "config/database.php";
 
-// Proteksi akses
-if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
-    header("Location: tambah_akun.php?error=Akses tidak diizinkan");
-    exit;
-}
+/* =======================
+   MAPPING KODE
+======================= */
+$map_induk = [
+    '1000' => '1', // Aset
+    '2000' => '2', // Liabilitas
+    '3000' => '3', // Ekuitas
+    '4000' => '4', // Pendapatan
+    '5000' => '5'  // Beban
+];
 
-// Ambil data dari form
-$kode_akun    = $_POST['kode_akun'];
+$map_sub = [
+    '100' => '10',
+    '200' => '20',
+    '300' => '30',
+    '400' => '40'
+];
+
+/* =======================
+   INPUT
+======================= */
+$kode_induk   = $_POST['kode_induk'];
+$kode_sub     = $_POST['kode_sub'];
 $nama_akun    = $_POST['nama_akun'];
 $tipe_akun    = $_POST['tipe_akun'];
 $saldo_normal = $_POST['saldo_normal'];
 $deskripsi    = $_POST['deskripsi'];
-$nominal      = $_POST['nominal'] ?? 0;
+$nominal      = $_POST['nominal'];
 
-// Validasi: kode akun tidak boleh duplikat
-$cek = mysqli_query($koneksi, "SELECT kode_akun FROM akun WHERE kode_akun='$kode_akun'");
-if (!$cek) {
-    die("Query gagal: " . mysqli_error($koneksi));
-}
-if (mysqli_num_rows($cek) > 0) {
-    header("Location: tambah_akun.php?error=Kode akun sudah ada");
-    exit;
-}
+/* =======================
+   PREFIX (PER KATEGORI)
+======================= */
+$prefix =
+    $map_induk[$kode_induk] .
+    $map_sub[$kode_sub];   // contoh: 110, 120, 210
 
-// Insert ke database
-$query = mysqli_query($koneksi, "
-    INSERT INTO akun (kode_akun, nama_akun, tipe_akun, saldo_normal, deskripsi, nominal)
-    VALUES ('$kode_akun', '$nama_akun', '$tipe_akun', '$saldo_normal', '$deskripsi', '$nominal')
+/* =======================
+   AUTO INCREMENT PER PREFIX
+======================= */
+$q = mysqli_query($koneksi, "
+    SELECT MAX(RIGHT(kode_final,1)) AS last
+    FROM akun
+    WHERE kode_final LIKE '$prefix%'
 ");
 
-if ($query) {
-    header("Location: akun.php?msg=added");
-    exit;
-} else {
-    die("Gagal menambah akun: " . mysqli_error($koneksi));
+$d = mysqli_fetch_assoc($q);
+$urut = ($d['last'] ?? 0) + 1;
+
+if ($urut > 9) {
+    die("❌ Maksimal akun untuk kategori ini sudah penuh");
 }
+
+/* =======================
+   FINAL KODE
+======================= */
+$kode_akun  = $urut;
+$kode_final = $prefix . $urut;
+
+/* =======================
+   INSERT
+======================= */
+$sql = "INSERT INTO akun
+(kode_induk, kode_sub, kode_akun, kode_final,
+ nama_akun, tipe_akun, saldo_normal, nominal, deskripsi)
+VALUES (
+ '$kode_induk', '$kode_sub', '$kode_akun', '$kode_final',
+ '$nama_akun', '$tipe_akun', '$saldo_normal', '$nominal', '$deskripsi'
+)";
+
+mysqli_query($koneksi, $sql);
+header("Location: akun.php");
+exit;
