@@ -79,21 +79,67 @@ function get_accounts_by_type($koneksi, $tipe_akun, $exclude_names = [])
 /* =========================
    1. HITUNG KPrPJ (MANUFACTURING)
 ========================= */
+/* =========================
+   1. HITUNG KPrPJ (MANUFACTURING)
+========================= */
+
+// Helper to get detailed stats
+function get_full_account_stats($koneksi, $keyword_name)
+{
+    // Cari akun
+    $q = mysqli_query($koneksi, "SELECT * FROM akun WHERE nama_akun LIKE '%$keyword_name%' LIMIT 1");
+    if (mysqli_num_rows($q) == 0)
+        return ['awal' => 0, 'debit' => 0, 'kredit' => 0, 'akhir' => 0];
+
+    $val = mysqli_fetch_assoc($q);
+    $id = $val['id'];
+    $awal = $val['nominal']; // Default Nominal as Opening
+
+    // Get Transaksi
+    $qTrx = mysqli_query($koneksi, "SELECT SUM(debit) d, SUM(kredit) k FROM jurnal_detail WHERE akun_id=$id");
+    $rTrx = mysqli_fetch_assoc($qTrx);
+    $debit = $rTrx['d'] ?? 0;
+    $kredit = $rTrx['k'] ?? 0;
+
+    // Calculate Final Balance based on Type/Normal (Assume Debit for Asset/Cost)
+    // PBB, PDP, KOP are Assets/Costs -> Normal Debit.
+    $akhir = $awal + $debit - $kredit;
+
+    return [
+        'awal' => $awal,
+        'debit' => $debit,   // Pembelian / Penambahan
+        'kredit' => $kredit, // Pemakaian / Pengurangan
+        'akhir' => $akhir
+    ];
+}
+
 // A. BAHAN BAKU
-$bb_awal = total_saldo_by_name($koneksi, "Persediaan bahan baku awal");
-$bb_beli = total_saldo_by_name($koneksi, "Pembelian bahan baku langsung");
-$bb_akhir = total_saldo_by_name($koneksi, "Persediaan bahan baku akhir"); // Biasanya kredit di jurnal penyesuaian, tapi saldo akun aset tetap debit. Kita asumsikan input manual/adjust men-set saldo ini. 
-
-// Jika BB Akhir adalah saldo aset, maka pengurangannya logika akuntansi: BTUD - Akhir = Pemakaian.
-// Di sistem sederhana ini, kita ambil saldo buku besar. 
-
-$pemakaian_bb = ($bb_awal + $bb_beli) - $bb_akhir;
+// Logic: Ambil dari akun "PBB (Persediaan Bahan Baku)"
+$stats_pbb = get_full_account_stats($koneksi, "PBB");
+$bb_awal = $stats_pbb['awal'];
+$bb_beli = $stats_pbb['debit']; // Pembelian = Arus Masuk (Debit) ke PBB
+$bb_akhir = $stats_pbb['akhir'];
+$pemakaian_bb = $bb_awal + $bb_beli - $bb_akhir; // Logic: Usage = Open + Buy - End
 
 // B. TENAGA KERJA LANGSUNG
-$tkl = total_saldo_by_name($koneksi, "Kos tenaga kerja langsung");
+// User request: Ambil dari nilai debit akun "Kos TKL"
+$stats_tkl = get_full_account_stats($koneksi, "Kos TKL");
+$tkl = $stats_tkl['debit'];
 
-// C. OVERHEAD PABRIK (BOP) list
+// C. OVERHEAD PABRIK (BOP)
+// User: "BOP tinggal menggunakan hasil KOP aja"
+// Ambil Total Debit KOP sebagai Total BOP Incurred.
+$stats_kop = get_full_account_stats($koneksi, "KOP");
+// KOP is typically cleared (Zero balance). We want the total incurred (Debit).
+$total_bop = $stats_kop['debit'];
+
+$bop_details = [
+    ['nama' => 'KOP (Kos Overhead Pabrik)', 'saldo' => $total_bop]
+];
+
+// Define BOP accounts for exclusion later
 $bop_accounts = [
+    "KOP",
     "Kos tenaga kerja tidak langsung pabrik",
     "Kos bahan baku tidak langsung pabrik",
     "Kos utilitas pabrik",
@@ -102,22 +148,35 @@ $bop_accounts = [
     "Kos penyusutan mesin pabrik"
 ];
 
-$total_bop = 0;
-$bop_details = [];
-foreach ($bop_accounts as $name) {
-    $val = total_saldo_by_name($koneksi, $name);
-    $total_bop += $val;
-    $bop_details[] = ['nama' => $name, 'saldo' => $val];
+// D. PDP (Persediaan Dalam Proses)
+// User: "PDP tinggal ambil dari PDP saja"
+$stats_pdp = get_full_account_stats($koneksi, "PDP");
+$pdp_awal = $stats_pdp['awal'];
+$pdp_akhir = $stats_pdp['akhir'];
+
+// TOTAL BIAYA PRODUKSI (Total Manufacturing Costs)
+// CRITICAL FIX: Total Biaya Produksi HARUS sama dengan Total Debit ke akun PDP.
+// Jika user men-debit PDP secara manual (direct labor/overhead straight to PDP),
+// maka nilai itu harus masuk sebagai Biaya Produksi agar balance sheet seimbang.
+// Rumus KPrPJ = (Total Input + Awal - Akhir).
+// Total Input = PDP Debits.
+// Akhir = Awal + Inputs - Credits.
+// Maka KPrPJ = Inputs + Awal - (Awal + Inputs - Credits) = Credits. (Correct).
+
+$real_pdp_input = $stats_pdp['debit'];
+$calculated_input = $pemakaian_bb + $tkl + $total_bop;
+$selisih_input = $real_pdp_input - $calculated_input;
+
+// Kita gunakan Real Input (Total Debit PDP) sebagai Total Biaya Produksi yang valid.
+$total_biaya_produksi = $real_pdp_input;
+
+// Jika ada selisih positif (Debit PDP > Komponen), berarti ada Direct Cost lain.
+$biaya_lainnya = 0;
+if ($selisih_input > 0) {
+    $biaya_lainnya = $selisih_input;
 }
 
-// TOTAL BIAYA PRODUKSI
-$total_biaya_produksi = $pemakaian_bb + $tkl + $total_bop;
-
-// D. PDP (Persediaan Dalam Proses)
-$pdp_awal = total_saldo_by_name($koneksi, "PDP awal");
-$pdp_akhir = total_saldo_by_name($koneksi, "PDP akhir");
-
-// HASIL KPrPJ
+// HASIL KPrPJ (Cost of Goods Manufactured)
 $kprpj = $total_biaya_produksi + $pdp_awal - $pdp_akhir;
 
 
@@ -129,12 +188,17 @@ $penjualan = total_saldo_by_name($koneksi, "Penjualan"); // Saldo normal Kredit 
 // Logic get_saldo = Debit - Kredit. Untuk Pendapatan (Saldo Kredit), hasilnya minus.
 // Agar mudah, kita balik tanda untuk Pendapatan & Ekuitas jika hasilnya minus.
 $penjualan = -1 * total_saldo_by_name($koneksi, "Penjualan");
+$penjualan_lain = -1 * total_saldo_by_name($koneksi, "Penjualan Lainnya"); // User request
+$total_penjualan = $penjualan + $penjualan_lain;
+
 $pot_penjualan = total_saldo_by_name($koneksi, "Potongan penjualan"); // Saldo normal Debit
-$penjualan_bersih = $penjualan - $pot_penjualan;
+$penjualan_bersih = $total_penjualan - $pot_penjualan;
 
 // B. HPP (COGS)
-$produk_jadi_awal = total_saldo_by_name($koneksi, "Persediaan produk jadi awal");
-$produk_jadi_akhir = total_saldo_by_name($koneksi, "Persediaan produk jadi akhir");
+// User request: Persediaan Produk Jadi ambil dari akun "KPrPJ"
+$stats_kprpj_acc = get_full_account_stats($koneksi, "KPrPJ");
+$produk_jadi_awal = $stats_kprpj_acc['awal'];
+$produk_jadi_akhir = $stats_kprpj_acc['akhir'];
 
 $barang_siap_jual = $produk_jadi_awal + $kprpj;
 $hpp = $barang_siap_jual - $produk_jadi_akhir;
@@ -144,12 +208,22 @@ $laba_bruto = $penjualan_bersih - $hpp;
 
 // D. BEBAN OPERASIONAL
 // Ambil semua beban KECUALI yang sudah masuk BOP/TKL/Pembelian
-$exclude_beban = array_merge($bop_accounts, [
-    "Kos tenaga kerja langsung",
-    "Pembelian bahan baku langsung",
-    "Potongan penjualan",
-    "Pajak penghasilan" // Kita pisah pajaknya
-]);
+// D. BEBAN OPERASIONAL
+// Ambil semua beban KECUALI yang sudah masuk BOP/TKL/Pembelian
+// User request: "beban ambil dari semua akun Beban aja, Selain KOP dan HPP"
+// Kita juga exclude "Beban pajak" agar tidak double dengan baris Pajak di bawah.
+$exclude_beban = [
+    "KOP",
+    "KPrPT",                  // User request: Exclude KPrPT (Manufacturing Transfer)
+    "Beban Pokok Pendapatan", // HPP
+    "Beban pajak",            // Dipisah di bawah
+    "Pajak penghasilan"       // Jaga-jaga nama lain
+];
+
+// Note: Kos tenaga kerja langsung/baku/dll jika tipe_akun='Beban' akan masuk sini jika tidak di-exclude.
+// Tapi di DB user, akun manufacturing sepertinya masuk aset/cost khusus atau via KOP. 
+// Jika ada akun tipe 'Beban' yang murni manufacturing selain KOP, harusnya di exclude.
+// Tapi sesuai request, kita simpan list minimalis.
 
 $beban_ops_data = get_accounts_by_type($koneksi, "Beban", $exclude_beban);
 $total_beban_ops = $beban_ops_data['total'];
@@ -158,12 +232,10 @@ $total_beban_ops = $beban_ops_data['total'];
 $laba_bersih_sebelum_pajak = $laba_bruto - $total_beban_ops;
 
 // F. PAJAK
-// User minta 15% manual atau akun. Kita coba cari akun dulu, kalau 0 hitung manual?
-// Sesuai gambar: "Pajak penghasilan (15% dari ...)"
-// Kita hitung manual saja sesuai request user image.
-$pajak = 0.15 * $laba_bersih_sebelum_pajak;
-if ($pajak < 0)
-    $pajak = 0; // Jika rugi, pajak 0 (asumsi simplified)
+// User request: Ambil dari akun "Beban pajak" (Real expense based on transactions).
+$stats_pajak = get_full_account_stats($koneksi, "Beban pajak");
+// Beban pajak is an Expense (Debit normal). get_full_account_stats returns 'debit' as total incurred.
+$pajak = $stats_pajak['debit'];
 
 $laba_bersih_setelah_pajak = $laba_bersih_sebelum_pajak - $pajak;
 $laba_rugi = $laba_bersih_setelah_pajak; // Untuk link ke Ekuitas
@@ -427,7 +499,7 @@ $saldo_kas_akhir = $saldo_kas_awal + $arus_kas_operasi_total + $arus_kas_investa
                                 <!-- PENDAPATAN -->
                                 <tr>
                                     <td>Penjualan</td>
-                                    <td class="text-end"><?= number_format($penjualan, 0, ',', '.') ?></td>
+                                    <td class="text-end"><?= number_format($total_penjualan, 0, ',', '.') ?></td>
                                 </tr>
                                 <tr>
                                     <td>(-) Potongan Penjualan</td>
@@ -502,7 +574,7 @@ $saldo_kas_akhir = $saldo_kas_awal + $arus_kas_operasi_total + $arus_kas_investa
                                 </tr>
 
                                 <tr>
-                                    <td>(-) Pajak Penghasilan (15%)</td>
+                                    <td>(-) Beban Pajak Penghasilan</td>
                                     <td class="text-end text-danger">(<?= number_format($pajak, 0, ',', '.') ?>)</td>
                                 </tr>
 
@@ -632,7 +704,7 @@ $saldo_kas_akhir = $saldo_kas_awal + $arus_kas_operasi_total + $arus_kas_investa
                                     <td>(+) Penyusutan</td>
                                     <td class="text-end"><?= number_format($arus_op_depresiasi, 0, ',', '.') ?></td>
                                 </tr>
-                                
+
                                 <tr class="text-muted text-xs bg-light">
                                     <td colspan="2"><small><i>Perubahan Modal Kerja:</i></small></td>
                                 </tr>
@@ -655,21 +727,27 @@ $saldo_kas_akhir = $saldo_kas_awal + $arus_kas_operasi_total + $arus_kas_investa
                                 </tr>
 
                                 <!-- ACTIVITY 2: INVESTING -->
-                                <tr><td colspan="2"></td></tr>
+                                <tr>
+                                    <td colspan="2"></td>
+                                </tr>
                                 <tr class="sub-header">
                                     <td colspan="2">AKTIVITAS INVESTASI</td>
                                 </tr>
                                 <tr>
                                     <td>Perolehan Aset Tetap (Capex)</td>
-                                    <td class="text-end"><?= number_format($arus_kas_investasi_total, 0, ',', '.') ?></td>
+                                    <td class="text-end"><?= number_format($arus_kas_investasi_total, 0, ',', '.') ?>
+                                    </td>
                                 </tr>
                                 <tr class="fw-bold table-warning">
                                     <td>Arus Kas Bersih dari Aktivitas Investasi</td>
-                                    <td class="text-end"><?= number_format($arus_kas_investasi_total, 0, ',', '.') ?></td>
+                                    <td class="text-end"><?= number_format($arus_kas_investasi_total, 0, ',', '.') ?>
+                                    </td>
                                 </tr>
 
                                 <!-- ACTIVITY 3: FINANCING -->
-                                <tr><td colspan="2"></td></tr>
+                                <tr>
+                                    <td colspan="2"></td>
+                                </tr>
                                 <tr class="sub-header">
                                     <td colspan="2">AKTIVITAS PENDANAAN</td>
                                 </tr>
@@ -687,18 +765,23 @@ $saldo_kas_akhir = $saldo_kas_awal + $arus_kas_operasi_total + $arus_kas_investa
                                 </tr>
                                 <tr class="fw-bold table-info">
                                     <td>Arus Kas Bersih dari Aktivitas Pendanaan</td>
-                                    <td class="text-end"><?= number_format($arus_kas_pendanaan_total, 0, ',', '.') ?></td>
+                                    <td class="text-end"><?= number_format($arus_kas_pendanaan_total, 0, ',', '.') ?>
+                                    </td>
                                 </tr>
 
                                 <!-- SUMMARY -->
-                                <tr><td colspan="2"></td></tr>
+                                <tr>
+                                    <td colspan="2"></td>
+                                </tr>
                                 <tr class="bg-light">
                                     <td>Saldo Kas Awal Periode</td>
                                     <td class="text-end"><?= number_format($saldo_kas_awal, 0, ',', '.') ?></td>
                                 </tr>
                                 <tr class="table-secondary" style="border-top: 2px solid #344767;">
                                     <td>SALDO KAS AKHIR</td>
-                                    <td class="text-end fw-bolder fs-5"><?= number_format($saldo_kas_akhir, 0, ',', '.') ?></td>
+                                    <td class="text-end fw-bolder fs-5">
+                                        <?= number_format($saldo_kas_akhir, 0, ',', '.') ?>
+                                    </td>
                                 </tr>
                             </table>
                         </div>

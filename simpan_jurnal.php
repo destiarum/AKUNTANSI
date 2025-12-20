@@ -50,8 +50,29 @@ for ($i = 0; $i < count($akun_kredit); $i++) {
 }
 
 // Alert sukses dan redirect kembali ke form kosong
-echo "<script>
-    alert('Transaksi berhasil disimpan');
-    window.location.href='jurnal_umum.php';
-</script>";
+echo "<!DOCTYPE html>
+<html lang='id'>
+<head>
+    <meta charset='UTF-8'>
+    <meta name='viewport' content='width=device-width, initial-scale=1.0'>
+    <title>Processing...</title>
+    <script src='https://cdn.jsdelivr.net/npm/sweetalert2@11'></script>
+    <style>
+        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background-color: #f8f9fa; }
+    </style>
+</head>
+<body>
+    <script>
+        Swal.fire({
+            title: 'Berhasil!',
+            text: 'Transaksi berhasil disimpan.',
+            icon: 'success',
+            confirmButtonColor: '#3085d6',
+            confirmButtonText: 'OK'
+        }).then((result) => {
+            window.location.href = 'jurnal_umum.php';
+        });
+    </script>
+</body>
+</html>";
 exit();

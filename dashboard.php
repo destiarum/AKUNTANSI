@@ -92,8 +92,39 @@ function total_by_tipe($koneksi, $tipe, $bulan, $tahun)
 }
 
 // Data utama
+// Data utama
+// Data utama
 $pendapatan = total_by_tipe($koneksi, 'Pendapatan', $bulan, $tahun);
-$beban = total_by_tipe($koneksi, 'Beban', $bulan, $tahun);
+$beban_ops = total_by_tipe($koneksi, 'Beban', $bulan, $tahun);
+
+// REVISI: Beban Dashboard = Beban Operasional + HPP (dari Perhitungan Laporan).
+// HPP di Laporan Laba Rugi = (Persediaan Awal + Produksi - Persediaan Akhir).
+// Secara matematis, jika Persediaan Akhir dihitung dari transaksi, maka HPP = Total KREDIT akun Persediaan Produk Jadi ("KPrPJ").
+// Maka kita tambahkan sumarize Credit KPrPJ ke Beban.
+
+$hpp_dashboard = 0;
+// Cari ID KPrPJ
+$qK = mysqli_query($koneksi, "SELECT id FROM akun WHERE nama_akun LIKE 'KPrPJ%' LIMIT 1");
+if (mysqli_num_rows($qK) > 0) {
+    $rK = mysqli_fetch_assoc($qK);
+    $id_kprpj = $rK['id'];
+
+    $w_jurnal = "";
+    if ($bulan != '') $w_jurnal .= " AND MONTH(j.tanggal)='$bulan'";
+    if ($tahun != '') $w_jurnal .= " AND YEAR(j.tanggal)='$tahun'";
+
+    $qHPP = mysqli_query($koneksi, "
+        SELECT SUM(jd.kredit) as total_kredit
+        FROM jurnal_detail jd
+        JOIN jurnal j ON jd.jurnal_id = j.id
+        WHERE jd.akun_id = $id_kprpj $w_jurnal
+    ");
+    $rHPP = mysqli_fetch_assoc($qHPP);
+    $hpp_dashboard = $rHPP['total_kredit'] ?? 0;
+}
+
+$beban = $beban_ops + $hpp_dashboard;
+
 $laba = $pendapatan - $beban;
 $aset = total_by_tipe($koneksi, 'Aset', $bulan, $tahun);
 $liab = total_by_tipe($koneksi, 'Liabilitas', $bulan, $tahun);
