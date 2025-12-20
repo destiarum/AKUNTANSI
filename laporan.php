@@ -11,16 +11,38 @@ include "config/database.php";
 ========================= */
 function get_saldo($koneksi, $akun_id)
 {
+    // 1. Ambil Total Transaksi
     $q = mysqli_query($koneksi, "
         SELECT SUM(debit) AS debit, SUM(kredit) AS kredit
         FROM jurnal_detail
         WHERE akun_id = $akun_id
     ");
     $r = mysqli_fetch_assoc($q);
-    // Saldo normal (Debit - Kredit) untuk Aset & Beban.
-    // Jika perlu penyesuaian untuk ekuitas/pendapatan (Kredit - Debit), sesuaikan di logika tampilan.
-    // Di sini kita return standard debit balance.
-    return ($r['debit'] ?? 0) - ($r['kredit'] ?? 0);
+    $trx_debit = $r['debit'] ?? 0;
+    $trx_kredit = $r['kredit'] ?? 0;
+
+    // 2. Ambil Saldo Awal (Nominal) dari Master Akun
+    $qAkun = mysqli_query($koneksi, "SELECT nominal, saldo_normal, tipe_akun FROM akun WHERE id = $akun_id");
+    $rAkun = mysqli_fetch_assoc($qAkun);
+    $nominal = $rAkun['nominal'] ?? 0;
+    $saldo_normal = $rAkun['saldo_normal'] ?? 'Debit';
+    $tipe = $rAkun['tipe_akun'];
+
+    // 3. Gabungkan (Khusus Akun Neraca: Aset, Liabilitas, Ekuitas)
+    // Akun Laba Rugi (Pendapatan/Beban) tidak punya saldo awal di laporan ini (kecuali ada filter tahun, tapi defaultnya no).
+    $final_debit = $trx_debit;
+    $final_kredit = $trx_kredit;
+
+    if (in_array($tipe, ['Aset', 'Liabilitas', 'Ekuitas'])) {
+        if ($saldo_normal == 'Debit') {
+            $final_debit += $nominal;
+        } else {
+            $final_kredit += $nominal;
+        }
+    }
+
+    // Return Net Debit balance
+    return $final_debit - $final_kredit;
 }
 
 function total_saldo_by_name($koneksi, $nama_akun)
@@ -152,12 +174,16 @@ $laba_rugi = $laba_bersih_setelah_pajak; // Untuk link ke Ekuitas
 ========================= */
 // PERUBAHAN EKUITAS
 // Note: Saldo Ekuitas normal Kredit, get_saldo return Debit-Kredit (Minus). Kita -1 kan.
-$modal_awal = -1 * total_saldo_by_name($koneksi, "Modal Saham Awal");
+// FIX: Saldo Awal Modal Saham ambil dari 'nominal' di tabel akun, bukan transaksi.
+$qModal = mysqli_query($koneksi, "SELECT nominal FROM akun WHERE nama_akun LIKE 'Modal Saham%' LIMIT 1");
+$rModal = mysqli_fetch_assoc($qModal);
+$modal_awal = $rModal['nominal'] ?? 0;
+
 $setoran_modal = -1 * total_saldo_by_name($koneksi, "Setoran Modal");
 // Jika akun tidak ditemukan (0), logic aman.
 $modal_akhir = $modal_awal + $setoran_modal;
 
-$saldo_laba_awal = -1 * total_saldo_by_name($koneksi, "Saldo Laba Awal");
+$saldo_laba_awal = 0; // User request: No opening balance for retained earnings.
 $dividen = total_saldo_by_name($koneksi, "Dividen"); // Debit
 $saldo_laba_akhir = $saldo_laba_awal + $laba_rugi - $dividen;
 $total_ekuitas = $modal_akhir + $saldo_laba_akhir;
@@ -171,25 +197,92 @@ $total_pasiva = $liabilitas + $total_ekuitas;
 // ARUS KAS
 $saldo_kas_awal = total_saldo_by_name($koneksi, "Kas Awal Periode");
 
-function kas_by_type_custom($koneksi, $tipe)
-{
-    // Helper simple
-    $q = mysqli_query($koneksi, "SELECT id, nama_akun FROM akun WHERE tipe_akun LIKE '%$tipe%'");
-    $list = [];
-    $tot = 0;
-    while ($r = mysqli_fetch_assoc($q)) {
-        $s = get_saldo($koneksi, $r['id']);
-        if ($s != 0) {
-            $list[] = ['nama' => $r['nama_akun'], 'saldo' => $s];
-            $tot += $s;
-        }
-    }
-    return ['total' => $tot, 'akun' => $list];
+// ARUS KAS (METODE TIDAK LANGSUNG / INDIRECT)
+// 1. Aktivitas Operasi
+// Start from Net Income
+$arus_op_laba = $laba_rugi;
+
+// Add back Non-Cash Expenses (Depreciation)
+// Cari semua akun 'Beban Penyusutan'
+$qDep = mysqli_query($koneksi, "SELECT id FROM akun WHERE nama_akun LIKE 'Beban Penyusutan%'");
+$arus_op_depresiasi = 0;
+while ($rD = mysqli_fetch_assoc($qDep)) {
+    // Beban is normally Debit. We add it back.
+    // get_saldo returns (Debit - Kredit).
+    // Note: get_saldo now includes Nominal (Opening Balance), but Expense usually has 0 opening unless 2024 special case.
+    // Ideally we want PURE transaction movement for the period.
+    // Let's make a quick helper for Pure Transaction Movement here.
+    $qTrx = mysqli_query($koneksi, "SELECT SUM(debit) d, SUM(kredit) k FROM jurnal_detail WHERE akun_id={$rD['id']}");
+    $rTrx = mysqli_fetch_assoc($qTrx);
+    $arus_op_depresiasi += ($rTrx['d'] - $rTrx['k']);
 }
-$kas_operasi = kas_by_type_custom($koneksi, "Kas Operasi");
-$kas_investasi = kas_by_type_custom($koneksi, "Kas Investasi");
-$kas_pendanaan = kas_by_type_custom($koneksi, "Kas Pendanaan");
-$saldo_kas_akhir = $saldo_kas_awal + $kas_operasi['total'] + $kas_investasi['total'] + $kas_pendanaan['total'];
+
+// Changes in Working Capital (Current Assets & Liabilities)
+// Aset Lancar (Non-Kas): Piutang, Persediaan, Perlengkapan
+// Kenaikan Aset = Arus Kas Keluar (-)
+// Penurunan Aset = Arus Kas Masuk (+)
+function get_trx_net_change($koneksi, $keyword)
+{
+    // Return (Debit - Kredit) movement
+    $q = mysqli_query($koneksi, "SELECT id FROM akun WHERE nama_akun LIKE '%$keyword%'");
+    $net = 0;
+    while ($r = mysqli_fetch_assoc($q)) {
+        $qTrx = mysqli_query($koneksi, "SELECT SUM(debit) d, SUM(kredit) k FROM jurnal_detail WHERE akun_id={$r['id']}");
+        $row = mysqli_fetch_assoc($qTrx);
+        $net += ($row['d'] - $row['k']);
+    }
+    return $net;
+}
+
+$chg_piutang = get_trx_net_change($koneksi, "Piutang");
+$chg_persediaan = get_trx_net_change($koneksi, "Persediaan");
+// Perlengkapan, Sewa Dibayar Dimuka, dll? Asumsikan Piutang & Persediaan major components.
+
+// Liabilitas Lancar: Utang Usaha, Utang Gaji, Utang Pajak
+// Kenaikan Liabilitas = Arus Kas Masuk (+)
+// Penurunan Liabilitas = Arus Kas Keluar (-)
+// Liabilitas normal Kredit. get_trx_net_change returns Debit-Kredit.
+// So if Debit > Kredit (run down debt), net is Positive. Convert to Outflow (-).
+// If Debit < Kredit (more debt), net is Negative. Convert to Inflow (+).
+// Basically: -1 * (Debit - Kredit) = Kredit - Debit.
+$chg_utang = get_trx_net_change($koneksi, "Utang Usaha");
+
+// Total Operasi
+// Rumus: Laba + Depresiasi - KenaikanAset + KenaikanLiabilitas
+$arus_kas_operasi_total = $arus_op_laba + $arus_op_depresiasi - $chg_piutang - $chg_persediaan + (-1 * $chg_utang);
+
+
+// 2. Aktivitas Investasi
+// Pembelian/Penjualan Aset Tetap (Peralatan, Mesin, Gedung, Tanah, Kendaraan)
+// Belanja Modal (Capex) = Debit movement (Purchase).
+// Sale = Kredit movement.
+// Net Debit = Outflow.
+$invest_keywords = ['Peralatan', 'Mesin', 'Gedung', 'Tanah', 'Kendaraan', 'Inventaris'];
+$arus_invest_net = 0;
+foreach ($invest_keywords as $kw) {
+    $arus_invest_net += get_trx_net_change($koneksi, $kw);
+}
+// Jika Net Debit (+), berarti keluar uang. Jadi dikali -1.
+$arus_kas_investasi_total = -1 * $arus_invest_net;
+
+
+// 3. Aktivitas Pendanaan
+// Utang Bank, Modal Saham, Dividen
+$chg_utang_bank = get_trx_net_change($koneksi, "Utang Bank"); // Liab: Kredit - Debit is inflow
+$chg_modal = get_trx_net_change($koneksi, "Modal"); // Equity: Kredit - Debit is inflow
+$chg_dividen = get_trx_net_change($koneksi, "Dividen"); // Equity withdraw: Debit is outflow
+
+// Inflows
+$flow_utang = -1 * $chg_utang_bank;
+$flow_modal = -1 * $chg_modal;
+// Outflows
+// Dividen normally Debit (+), so outflow is minus.
+$flow_dividen = -1 * $chg_dividen;
+
+$arus_kas_pendanaan_total = $flow_utang + $flow_modal + $flow_dividen;
+
+// Final
+$saldo_kas_akhir = $saldo_kas_awal + $arus_kas_operasi_total + $arus_kas_investasi_total + $arus_kas_pendanaan_total;
 
 ?>
 <!DOCTYPE html>
@@ -450,10 +543,7 @@ $saldo_kas_akhir = $saldo_kas_awal + $kas_operasi['total'] + $kas_investasi['tot
                                 <tr class="sub-header">
                                     <td colspan="2">SALDO LABA</td>
                                 </tr>
-                                <tr>
-                                    <td>Saldo Awal</td>
-                                    <td class="text-end"><?= number_format($saldo_laba_awal, 0, ',', '.') ?></td>
-                                </tr>
+                                <!-- Removed Saldo Awal row as requested -->
                                 <tr>
                                     <td>Laba Bersih Tahun Ini</td>
                                     <td class="text-end"><?= number_format($laba_rugi, 0, ',', '.') ?></td>
@@ -530,51 +620,85 @@ $saldo_kas_akhir = $saldo_kas_awal + $kas_operasi['total'] + $kas_investasi['tot
                         <h5 class="mb-4 fw-bold text-dark border-bottom pb-3">Laporan Arus Kas</h5>
                         <div class="table-responsive">
                             <table class="table table-hover">
+                                <!-- ACTIVITY 1: OPERATING -->
                                 <tr class="sub-header">
                                     <td colspan="2">AKTIVITAS OPERASI</td>
                                 </tr>
-                                <?php foreach ($kas_operasi['akun'] as $k): ?>
-                                    <tr>
-                                        <td><?= $k['nama'] ?></td>
-                                        <td class="text-end"><?= number_format($k['saldo'], 0, ',', '.') ?></td>
-                                    </tr>
-                                <?php endforeach; ?>
-                                <tr class="fw-bold bg-light">
-                                    <td>Subtotal Operasi</td>
-                                    <td class="text-end"><?= number_format($kas_operasi['total'], 0, ',', '.') ?></td>
+                                <tr>
+                                    <td>Laba Bersih</td>
+                                    <td class="text-end fw-bold"><?= number_format($arus_op_laba, 0, ',', '.') ?></td>
+                                </tr>
+                                <tr>
+                                    <td>(+) Penyusutan</td>
+                                    <td class="text-end"><?= number_format($arus_op_depresiasi, 0, ',', '.') ?></td>
+                                </tr>
+                                
+                                <tr class="text-muted text-xs bg-light">
+                                    <td colspan="2"><small><i>Perubahan Modal Kerja:</i></small></td>
+                                </tr>
+                                <tr>
+                                    <td>(Kenaikan)/Penurunan Piutang</td>
+                                    <td class="text-end"><?= number_format(-$chg_piutang, 0, ',', '.') ?></td>
+                                </tr>
+                                <tr>
+                                    <td>(Kenaikan)/Penurunan Persediaan</td>
+                                    <td class="text-end"><?= number_format(-$chg_persediaan, 0, ',', '.') ?></td>
+                                </tr>
+                                <tr>
+                                    <td>Kenaikan/(Penurunan) Utang Usaha</td>
+                                    <td class="text-end"><?= number_format(-$chg_utang, 0, ',', '.') ?></td>
                                 </tr>
 
+                                <tr class="fw-bold table-success">
+                                    <td>Arus Kas Bersih dari Aktivitas Operasi</td>
+                                    <td class="text-end"><?= number_format($arus_kas_operasi_total, 0, ',', '.') ?></td>
+                                </tr>
+
+                                <!-- ACTIVITY 2: INVESTING -->
+                                <tr><td colspan="2"></td></tr>
                                 <tr class="sub-header">
                                     <td colspan="2">AKTIVITAS INVESTASI</td>
                                 </tr>
-                                <?php foreach ($kas_investasi['akun'] as $k): ?>
-                                    <tr>
-                                        <td><?= $k['nama'] ?></td>
-                                        <td class="text-end"><?= number_format($k['saldo'], 0, ',', '.') ?></td>
-                                    </tr>
-                                <?php endforeach; ?>
-                                <tr class="fw-bold bg-light">
-                                    <td>Subtotal Investasi</td>
-                                    <td class="text-end"><?= number_format($kas_investasi['total'], 0, ',', '.') ?></td>
+                                <tr>
+                                    <td>Perolehan Aset Tetap (Capex)</td>
+                                    <td class="text-end"><?= number_format($arus_kas_investasi_total, 0, ',', '.') ?></td>
+                                </tr>
+                                <tr class="fw-bold table-warning">
+                                    <td>Arus Kas Bersih dari Aktivitas Investasi</td>
+                                    <td class="text-end"><?= number_format($arus_kas_investasi_total, 0, ',', '.') ?></td>
                                 </tr>
 
+                                <!-- ACTIVITY 3: FINANCING -->
+                                <tr><td colspan="2"></td></tr>
                                 <tr class="sub-header">
                                     <td colspan="2">AKTIVITAS PENDANAAN</td>
                                 </tr>
-                                <?php foreach ($kas_pendanaan['akun'] as $k): ?>
-                                    <tr>
-                                        <td><?= $k['nama'] ?></td>
-                                        <td class="text-end"><?= number_format($k['saldo'], 0, ',', '.') ?></td>
-                                    </tr>
-                                <?php endforeach; ?>
-                                <tr class="fw-bold bg-light">
-                                    <td>Subtotal Pendanaan</td>
-                                    <td class="text-end"><?= number_format($kas_pendanaan['total'], 0, ',', '.') ?></td>
+                                <tr>
+                                    <td>Penerimaan Utang Bank</td>
+                                    <td class="text-end"><?= number_format($flow_utang, 0, ',', '.') ?></td>
+                                </tr>
+                                <tr>
+                                    <td>Setoran Modal</td>
+                                    <td class="text-end"><?= number_format($flow_modal, 0, ',', '.') ?></td>
+                                </tr>
+                                <tr>
+                                    <td>Pembayaran Dividen</td>
+                                    <td class="text-end"><?= number_format($flow_dividen, 0, ',', '.') ?></td>
+                                </tr>
+                                <tr class="fw-bold table-info">
+                                    <td>Arus Kas Bersih dari Aktivitas Pendanaan</td>
+                                    <td class="text-end"><?= number_format($arus_kas_pendanaan_total, 0, ',', '.') ?></td>
                                 </tr>
 
-                                <tr class="table-secondary">
-                                    <td>Saldo Kas Akhir</td>
-                                    <td class="text-end"><?= number_format($saldo_kas_akhir, 0, ',', '.') ?></td>
+                                <!-- SUMMARY -->
+                                <tr><td colspan="2"></td></tr>
+                                <tr class="bg-light">
+                                    <td>Saldo Kas Awal Periode</td>
+                                    <td class="text-end"><?= number_format($saldo_kas_awal, 0, ',', '.') ?></td>
+                                </tr>
+                                <tr class="table-secondary" style="border-top: 2px solid #344767;">
+                                    <td>SALDO KAS AKHIR</td>
+                                    <td class="text-end fw-bolder fs-5"><?= number_format($saldo_kas_akhir, 0, ',', '.') ?></td>
                                 </tr>
                             </table>
                         </div>

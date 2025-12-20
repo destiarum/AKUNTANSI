@@ -13,12 +13,12 @@ if (!class_exists('FPDF')) {
    FILTER
 ======================== */
 $bulan = $_GET['bulan'] ?? '';
-$tahun = $_GET['tahun'] ?? '';
+$tahun = $_GET['tahun'] ?? date('Y');
 
 /* ========================
    FUNGSI SALDO
 ======================== */
-function get_saldo($koneksi, $kode, $bulan, $tahun)
+function get_saldo($koneksi, $kode, $bulan, $tahun, $tipe_akun = '')
 {
     $w = "";
     if ($bulan != '')
@@ -34,15 +34,51 @@ function get_saldo($koneksi, $kode, $bulan, $tahun)
         WHERE a.kode_final='$kode' $w
     ");
     $r = mysqli_fetch_assoc($q);
-    return ($r['d'] ?? 0) - ($r['k'] ?? 0);
+    $debit = $r['d'] ?? 0;
+    $kredit = $r['k'] ?? 0;
+
+    // Handling Khusus 2024: Hanya ambil Saldo Awal (abaikan transaksi)
+    if ($tahun == '2024') {
+        $debit = 0;
+        $kredit = 0;
+    }
+
+    // 2. Opening Balance & Normal
+    $qAkun = mysqli_query($koneksi, "SELECT nominal, saldo_normal FROM akun WHERE kode_final='$kode'");
+    $rAkun = mysqli_fetch_assoc($qAkun);
+    $nominal = $rAkun['nominal'] ?? 0;
+    $saldo_normal_akun = $rAkun['saldo_normal'] ?? 'Debit';
+
+    $saldoAwal = 0;
+    if ($tahun == '2024') {
+        $saldoAwal = $nominal;
+    } elseif (in_array($tipe_akun, ['Aset', 'Liabilitas', 'Ekuitas'])) {
+        $saldoAwal = $nominal;
+    }
+
+    // 3. Calculate Balance Magnitude
+    if ($saldo_normal_akun == 'Debit') {
+        $balance_magnitude = ($saldoAwal + $debit) - $kredit;
+    } else {
+        $balance_magnitude = ($saldoAwal + $kredit) - $debit;
+    }
+
+    // 4. Determine Sign
+    $group_normal = in_array($tipe_akun, ['Aset', 'Beban']) ? 'Debit' : 'Kredit';
+
+    if ($saldo_normal_akun == $group_normal) {
+        return $balance_magnitude;
+    } else {
+        return -$balance_magnitude;
+    }
 }
 
 function total_tipe($k, $tipe, $b, $t)
 {
     $tot = 0;
-    $q = mysqli_query($k, "SELECT kode_final FROM akun WHERE tipe_akun='$tipe'");
+    $q = mysqli_query($k, "SELECT kode_final, tipe_akun FROM akun WHERE tipe_akun='$tipe'");
     while ($r = mysqli_fetch_assoc($q)) {
-        $tot += get_saldo($k, $r['kode_final'], $b, $t);
+        $tot += get_saldo($k, $r['kode_final'], $b, $t, $r['tipe_akun']);
     }
     return $tot;
 }
