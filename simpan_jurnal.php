@@ -9,6 +9,11 @@ include 'config/database.php';
 
 // Ambil data form
 $tgl = $_POST['tgl'];
+
+if ($tgl < '2025-01-01') {
+    die("<script>alert('Gagal: Tanggal transaksi minimal 1 Januari 2025. Periode sebelumnya adalah Saldo Awal.'); history.back();</script>");
+}
+
 $deskripsi = $_POST['deskripsi'];
 $akun_debit = $_POST['akun_debit'];
 $desc_debit = $_POST['desc_debit'];

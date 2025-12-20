@@ -7,7 +7,7 @@ if (!isset($_SESSION['username'])) {
 include "config/database.php";
 
 $bulan = $_GET['bulan'] ?? '';
-$tahun = $_GET['tahun'] ?? '';
+$tahun = $_GET['tahun'] ?? date('Y'); // Default tahun saat ini (2025)
 
 function get_saldo($koneksi, $kode, $bulan = '', $tahun = '', $tipe_akun = '')
 {
@@ -17,22 +17,32 @@ function get_saldo($koneksi, $kode, $bulan = '', $tahun = '', $tipe_akun = '')
   if ($tahun != '')
     $w .= " AND YEAR(j.tanggal)='$tahun'";
 
-  // 1. Get Transaction Sums
-  $q = mysqli_query($koneksi, "
-        SELECT SUM(jd.debit)d,SUM(jd.kredit)k
-        FROM jurnal_detail jd
-        JOIN jurnal j ON jd.jurnal_id=j.id
-        JOIN akun a ON jd.akun_id=a.id
-        WHERE a.kode_final='$kode' $w
-    ");
-  $r = mysqli_fetch_assoc($q);
-  $debit = $r['d'] ?? 0;
-  $kredit = $r['k'] ?? 0;
 
-  // 2. Get Opening Balance (Nominal) from Akun table
-  $qAkun = mysqli_query($koneksi, "SELECT nominal FROM akun WHERE kode_final='$kode'");
+
+  // Handling Khusus 2024: User minta "ikutin saldo awal aja"
+  // Jadi kalau tahun 2024, kita anggap tidak ada transaksi (0), hanya saldo awal.
+  if ($tahun == '2024') {
+    $debit = 0;
+    $kredit = 0;
+  } else {
+    // 1. Get Transaction Sums
+    $q = mysqli_query($koneksi, "
+            SELECT SUM(jd.debit)d,SUM(jd.kredit)k
+            FROM jurnal_detail jd
+            JOIN jurnal j ON jd.jurnal_id=j.id
+            JOIN akun a ON jd.akun_id=a.id
+            WHERE a.kode_final='$kode' $w
+        ");
+    $r = mysqli_fetch_assoc($q);
+    $debit = $r['d'] ?? 0;
+    $kredit = $r['k'] ?? 0;
+  }
+
+  // 2. Get Opening Balance & Normal Balance from Akun table
+  $qAkun = mysqli_query($koneksi, "SELECT nominal, saldo_normal FROM akun WHERE kode_final='$kode'");
   $rAkun = mysqli_fetch_assoc($qAkun);
   $nominal = $rAkun['nominal'] ?? 0;
+  $saldo_normal_akun = $rAkun['saldo_normal'] ?? 'Debit'; // Default Debit if empty
 
   $saldoAwal = 0;
 
@@ -40,17 +50,33 @@ function get_saldo($koneksi, $kode, $bulan = '', $tahun = '', $tipe_akun = '')
   // 1. Tahun = kosong (Semua) atau 2024: Include Nominal
   // 2. TAPI, hanya untuk akun Neraca (Aset, Liabilitas, Ekuitas).
   //    Akun Laba Rugi (Pendapatan, Beban) selalu 0 saldo awalnya (murni transaksi berjalan).
-  if (($tahun == '' || $tahun == '2024') && in_array($tipe_akun, ['Aset', 'Liabilitas', 'Ekuitas'])) {
+  // Logic Saldo Awal:
+  // 1. Jika Tahun 2024: Semua akun ambil Saldo Awal (termasuk Pendapatan/Beban)
+  // 2. Jika Tahun Lain (2025): Hanya akun Neraca (Aset, Liabilitas, Ekuitas) yang bawa Saldo Awal.
+  if ($tahun == '2024') {
+    $saldoAwal = $nominal;
+  } elseif (in_array($tipe_akun, ['Aset', 'Liabilitas', 'Ekuitas'])) {
     $saldoAwal = $nominal;
   }
 
-  // 3. Normal Balance Logic
-  // Aset & Beban: Debit Balance
-  // Liabilitas, Ekuitas, Pendapatan: Credit Balance
-  if (in_array($tipe_akun, ['Aset', 'Beban'])) {
-    return ($saldoAwal + $debit) - $kredit;
+  // 3. Calculate Balance based on Account's OWN Normal Balance
+  // (Magnitude of the balance)
+  if ($saldo_normal_akun == 'Debit') {
+    $balance_magnitude = ($saldoAwal + $debit) - $kredit;
   } else {
-    return ($saldoAwal + $kredit) - $debit;
+    // Kredit
+    $balance_magnitude = ($saldoAwal + $kredit) - $debit;
+  }
+
+  // 4. Determine Sign based on Group Type (Category)
+  // If the account's normal balance matches the Category's normal side, add it.
+  // If it's opposite (Contra account), subtract it.
+  $group_normal = in_array($tipe_akun, ['Aset', 'Beban']) ? 'Debit' : 'Kredit';
+
+  if ($saldo_normal_akun == $group_normal) {
+    return $balance_magnitude;
+  } else {
+    return -$balance_magnitude;
   }
 }
 
@@ -90,16 +116,77 @@ for ($i = 1; $i <= 12; $i++) {
   $laba_bulan[] = $pendapatan_bulan[$i - 1] - $beban_bulan[$i - 1];
 }
 // total debit dan kredit
-$q = mysqli_query($koneksi, "
-    SELECT SUM(debit) AS total_debit, SUM(kredit) AS total_kredit
-    FROM jurnal_detail
-");
-$r = mysqli_fetch_assoc($q);
-$total_debit = $r['total_debit'] ?? 0;
-$total_kredit = $r['total_kredit'] ?? 0;
+if ($tahun == '2024') {
+  // Jika 2024, hitung dari Saldo Awal (Nominal Akun)
+  $q = mysqli_query($koneksi, "SELECT nominal, saldo_normal FROM akun");
+  $total_debit = 0;
+  $total_kredit = 0;
+  while ($r = mysqli_fetch_assoc($q)) {
+    if ($r['saldo_normal'] == 'Debit') {
+      $total_debit += $r['nominal'];
+    } else {
+      $total_kredit += $r['nominal'];
+    }
+  }
+} else {
+  // Tahun lain (2025/All), hitung dari Transaksi Jurnal
+  $w_jurnal = "";
+  if ($bulan != '')
+    $w_jurnal .= " AND MONTH(tanggal)='$bulan'";
+  if ($tahun != '')
+    $w_jurnal .= " AND YEAR(tanggal)='$tahun'";
+
+  $q = mysqli_query($koneksi, "
+        SELECT SUM(debit) AS total_debit, SUM(kredit) AS total_kredit
+        FROM jurnal_detail jd
+        JOIN jurnal j ON jd.jurnal_id=j.id
+        WHERE 1=1 $w_jurnal
+    ");
+  $r = mysqli_fetch_assoc($q);
+  $total_debit = $r['total_debit'] ?? 0;
+  $total_kredit = $r['total_kredit'] ?? 0;
+}
 
 // cek balance
 $balance = $total_debit - $total_kredit;
+
+// Logic Tambahan 2024:
+// User minta selisih dikurangi Laba/Rugi (karena Pendapatan/Beban belum ditutup ke Ekuitas).
+// Jadi kita hitung dulu Pendapatan & Beban, lalu sesuaikan balance-nya.
+if ($tahun == '2024') {
+  // Hitung Pendapatan & Beban khusus untuk cek balance ini
+  // (Kita panggil fungsi total_by_tipe yg sudah ada)
+  $p_check = total_by_tipe($koneksi, 'Pendapatan', $bulan, $tahun);
+  $b_check = total_by_tipe($koneksi, 'Beban', $bulan, $tahun);
+
+  // Laba Bersih = Pendapatan - Beban
+  // Di laporan: Laba Bersih menambah Ekuitas (Kredit).
+  // Tapi di sini, 'Pendapatan' ada di Total Kredit, 'Beban' ada di Total Debit.
+  // Selisih (Debit - Kredit) biasanya minus jika Untung.
+  // Jadi: Adjusted Balance = (Debit - Kredit) + (Pendapatan - Beban) ??
+  // Cek:
+  // Debit = Beban + Aset
+  // Kredit = Pendapatan + Liabilitas + Ekuitas
+  // Debit - Kredit = (Beban - Pendapatan) + (Aset - Liab - Ekui)
+  // Jika Aset=Liab+Ekui, maka Debit-Kredit = Beban - Pendapatan = -Laba.
+  // Jadi agar 0, harus ditambah Laba (Pendapatan - Beban).
+
+  $laba_rugi_check = $p_check - $b_check;
+  $balance = ($total_debit - $total_kredit) + $laba_rugi_check;
+
+  // VISUAL EQUALIZATION (User Request):
+  // Jika secara logika sudah balanced (seimbang), maka samakan tampilan Debit & Kredit.
+  // Laba Bersih yg mengambang ditambahkan ke sisi yang lebih kecil agar seimbang.
+  if (abs($balance) < 1) {
+    if ($laba_rugi_check > 0) {
+      // Profit (Credit side overflow). Add to Debit side to balance visual.
+      $total_debit += $laba_rugi_check;
+    } elseif ($laba_rugi_check < 0) {
+      // Loss (Debit side overflow). Add to Credit side to balance visual.
+      $total_kredit += abs($laba_rugi_check);
+    }
+  }
+}
 
 ?>
 <!DOCTYPE html>
@@ -249,7 +336,7 @@ $balance = $total_debit - $total_kredit;
           <div class="col-md-3">
             <label class="form-label fw-bold small">Tahun</label>
             <select name="tahun" class="form-select border-light bg-light">
-              <option value="">Semua Tahun</option>
+              <!-- Removed "Semua Tahun" as requested -->
               <?php for ($i = date('Y'); $i >= date('Y') - 1; $i--): ?>
                 <option value="<?= $i ?>" <?= ($tahun == $i ? 'selected' : '') ?>>
                   <?= $i ?>

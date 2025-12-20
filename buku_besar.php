@@ -206,7 +206,14 @@ $tipe = $_GET['tipe'] ?? '';
                 $badgeColor = 'bg-beban';
 
             // Hitung Saldo Awal
+            // Standard: Ambil dari Nominal
             $saldoBerjalan = $akun['nominal'] ?? 0;
+
+            // EXCEPTION: Pendapatan & Beban tidak punya Saldo Awal di Buku Besar
+            // (Murni akumulasi transaksi per periode)
+            if (in_array($tipe_akun, ['Pendapatan', 'Beban'])) {
+                $saldoBerjalan = 0;
+            }
             ?>
 
             <div class="card">
