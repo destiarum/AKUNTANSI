@@ -8,7 +8,8 @@ if (!isset($_SESSION['username'])) {
 include 'config/database.php';
 
 // Ambil daftar akun
-$akun = mysqli_query($koneksi, "SELECT * FROM akun ORDER BY kode_akun ASC");
+// Ambil daftar akun
+$akun = mysqli_query($koneksi, "SELECT * FROM akun ORDER BY kode_final ASC");
 if (!$akun)
     die("Query akun gagal: " . mysqli_error($koneksi));
 
@@ -16,7 +17,7 @@ if (!$akun)
 $akunArray = [];
 mysqli_data_seek($akun, 0);
 while ($row = mysqli_fetch_assoc($akun)) {
-    $akunArray[] = ['id' => $row['id'], 'kode' => $row['kode_akun'], 'nama' => $row['nama_akun']];
+    $akunArray[] = ['id' => $row['id'], 'kode' => $row['kode_final'], 'nama' => $row['nama_akun']];
 }
 ?>
 <!DOCTYPE html>
@@ -297,7 +298,7 @@ while ($row = mysqli_fetch_assoc($akun)) {
                                                     <option value="">-- Pilih Akun --</option>
                                                     <?php mysqli_data_seek($akun, 0);
                                                     while ($row = mysqli_fetch_assoc($akun)) { ?>
-                                                        <option value="<?= $row['id'] ?>"><?= $row['kode_akun'] ?> -
+                                                        <option value="<?= $row['id'] ?>"><?= $row['kode_final'] ?> -
                                                             <?= $row['nama_akun'] ?>
                                                         </option>
                                                     <?php } ?>
@@ -354,7 +355,7 @@ while ($row = mysqli_fetch_assoc($akun)) {
                                                     <option value="">-- Pilih Akun --</option>
                                                     <?php mysqli_data_seek($akun, 0);
                                                     while ($row = mysqli_fetch_assoc($akun)) { ?>
-                                                        <option value="<?= $row['id'] ?>"><?= $row['kode_akun'] ?> -
+                                                        <option value="<?= $row['id'] ?>"><?= $row['kode_final'] ?> -
                                                             <?= $row['nama_akun'] ?>
                                                         </option>
                                                     <?php } ?>
