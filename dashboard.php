@@ -23,24 +23,24 @@ function get_saldo($koneksi, $kode, $bulan = '', $tahun = '', $tipe_akun = '')
         FROM jurnal_detail jd
         JOIN jurnal j ON jd.jurnal_id=j.id
         JOIN akun a ON jd.akun_id=a.id
-        WHERE a.kode_akun='$kode' $w
+        WHERE a.kode_final='$kode' $w
     ");
   $r = mysqli_fetch_assoc($q);
   $debit = $r['d'] ?? 0;
   $kredit = $r['k'] ?? 0;
 
   // 2. Get Opening Balance (Nominal) from Akun table
-  $qAkun = mysqli_query($koneksi, "SELECT nominal FROM akun WHERE kode_akun='$kode'");
+  $qAkun = mysqli_query($koneksi, "SELECT nominal FROM akun WHERE kode_final='$kode'");
   $rAkun = mysqli_fetch_assoc($qAkun);
   $nominal = $rAkun['nominal'] ?? 0;
 
   $saldoAwal = 0;
 
-  // Logic Saldo Awal (Sesuai Request User):
-  // - Tahun 2024 atau 'Semua Tahun': Include Nominal
-  // - Tahun lain (misal 2025): Exclude Nominal (Hanya Transaksi)
-  // Logic applied to all accounts to follow "2025 ok if only taking from transaction"
-  if ($tahun == '' || $tahun == '2024') {
+  // Logic Saldo Awal:
+  // 1. Tahun = kosong (Semua) atau 2024: Include Nominal
+  // 2. TAPI, hanya untuk akun Neraca (Aset, Liabilitas, Ekuitas).
+  //    Akun Laba Rugi (Pendapatan, Beban) selalu 0 saldo awalnya (murni transaksi berjalan).
+  if (($tahun == '' || $tahun == '2024') && in_array($tipe_akun, ['Aset', 'Liabilitas', 'Ekuitas'])) {
     $saldoAwal = $nominal;
   }
 
@@ -58,9 +58,9 @@ function total_by_tipe($koneksi, $tipe, $bulan, $tahun)
 {
   $t = 0;
   // Pastikan ambil tipe_akun yang sesuai untuk filtering strict
-  $q = mysqli_query($koneksi, "SELECT kode_akun, tipe_akun FROM akun WHERE tipe_akun='$tipe'");
+  $q = mysqli_query($koneksi, "SELECT kode_final, tipe_akun FROM akun WHERE tipe_akun='$tipe'");
   while ($r = mysqli_fetch_assoc($q)) {
-    $t += get_saldo($koneksi, $r['kode_akun'], $bulan, $tahun, $r['tipe_akun']);
+    $t += get_saldo($koneksi, $r['kode_final'], $bulan, $tahun, $r['tipe_akun']);
   }
   return $t;
 }
