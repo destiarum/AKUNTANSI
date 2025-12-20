@@ -86,8 +86,8 @@ function total_by_tipe($koneksi, $tipe, $bulan, $tahun, $exclude = [])
   // Build exclude clause
   $exclude_sql = "";
   if (!empty($exclude)) {
-    $escaped_names = array_map(function($n) use ($koneksi) {
-        return "'" . mysqli_real_escape_string($koneksi, $n) . "'";
+    $escaped_names = array_map(function ($n) use ($koneksi) {
+      return "'" . mysqli_real_escape_string($koneksi, $n) . "'";
     }, $exclude);
     $list = implode(",", $escaped_names);
     $exclude_sql = "AND nama_akun NOT IN ($list)";
@@ -388,6 +388,7 @@ if ($tahun == '2024') {
       <div>
         <h3 class="mb-1">Dashboard Overview</h3>
         <p class="text-muted mb-0">Ringkasan kesehatan keuangan Anda hari ini.</p>
+        <small class="text-danger fw-bold">* Angka disajikan dalam Jutaan Rupiah</small>
       </div>
       <div class="d-flex gap-2">
         <div class="bg-white px-3 py-2 rounded-pill shadow-sm text-sm fw-bold border">

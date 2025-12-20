@@ -99,6 +99,7 @@ $sortIcon = $sort == 'ASC' ? 'fa-sort-amount-down-alt' : 'fa-sort-amount-up';
             <div>
                 <h3 class="mb-1 fw-bold">Jurnal Umum</h3>
                 <p class="text-muted mb-0">Rekap seluruh transaksi keuangan secara kronologis.</p>
+                <small class="text-danger fw-bold">* Angka disajikan dalam Jutaan Rupiah</small>
             </div>
             <div>
                 <a href="?sort=<?= $nextSort ?>" class="btn btn-outline-primary me-2 shadow-sm">

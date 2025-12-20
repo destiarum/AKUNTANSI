@@ -458,7 +458,8 @@ $saldo_kas_akhir = $saldo_kas_awal + $arus_kas_operasi_total + $arus_kas_investa
     <div class="main">
         <div class="mb-4">
             <h3 class="mb-2 fw-bold">Laporan Keuangan</h3>
-            <p class="text-muted mb-4">Ringkasan performa keuangan manufaktur secara real-time.</p>
+            <p class="text-muted mb-1">Ringkasan performa keuangan manufaktur secara real-time.</p>
+            <small class="text-danger fw-bold d-block mb-3">* Angka disajikan dalam Jutaan Rupiah</small>
 
             <!-- NAV PILLS -->
             <ul class="nav nav-pills mb-3" id="pills-tab" role="tablist">
