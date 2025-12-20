@@ -149,7 +149,8 @@ $tipe = $_GET['tipe'] ?? '';
     <div class="main">
         <div class="mb-4">
             <h3 class="mb-1 fw-bold">Buku Besar</h3>
-            <p class="text-muted mb-3">Rincian riwayat transaksi dikelompokkan per akun.</p>
+            <p class="text-muted mb-1">Rincian riwayat transaksi dikelompokkan per akun.</p>
+            <small class="text-danger fw-bold d-block mb-3">* Angka disajikan dalam Jutaan Rupiah</small>
 
             <div class="d-flex flex-wrap">
                 <a href="buku_besar.php" class="btn-filter <?= ($tipe == '') ? 'active' : '' ?>">Semua</a>

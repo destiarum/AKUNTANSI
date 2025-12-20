@@ -80,11 +80,21 @@ function get_saldo($koneksi, $kode, $bulan = '', $tahun = '', $tipe_akun = '')
   }
 }
 
-function total_by_tipe($koneksi, $tipe, $bulan, $tahun)
+function total_by_tipe($koneksi, $tipe, $bulan, $tahun, $exclude = [])
 {
   $t = 0;
+  // Build exclude clause
+  $exclude_sql = "";
+  if (!empty($exclude)) {
+    $escaped_names = array_map(function ($n) use ($koneksi) {
+      return "'" . mysqli_real_escape_string($koneksi, $n) . "'";
+    }, $exclude);
+    $list = implode(",", $escaped_names);
+    $exclude_sql = "AND nama_akun NOT IN ($list)";
+  }
+
   // Pastikan ambil tipe_akun yang sesuai untuk filtering strict
-  $q = mysqli_query($koneksi, "SELECT kode_final, tipe_akun FROM akun WHERE tipe_akun='$tipe'");
+  $q = mysqli_query($koneksi, "SELECT kode_final, tipe_akun FROM akun WHERE tipe_akun='$tipe' $exclude_sql");
   while ($r = mysqli_fetch_assoc($q)) {
     $t += get_saldo($koneksi, $r['kode_final'], $bulan, $tahun, $r['tipe_akun']);
   }
@@ -93,7 +103,50 @@ function total_by_tipe($koneksi, $tipe, $bulan, $tahun)
 
 // Data utama
 $pendapatan = total_by_tipe($koneksi, 'Pendapatan', $bulan, $tahun);
-$beban = total_by_tipe($koneksi, 'Beban', $bulan, $tahun);
+
+$exclude_beban = ['KOP', 'KPrPT', 'Beban Pokok Pendapatan', 'Beban pajak', 'Pajak penghasilan'];
+$tax_accounts = ['Beban pajak', 'Pajak penghasilan'];
+
+$beban_ops = total_by_tipe($koneksi, 'Beban', $bulan, $tahun, $exclude_beban);
+
+// REVISI: Beban Dashboard = Beban Operasional + HPP (dari Perhitungan Laporan).
+// HPP di Laporan Laba Rugi = (Persediaan Awal + Produksi - Persediaan Akhir).
+// Secara matematis, jika Persediaan Akhir dihitung dari transaksi, maka HPP = Total KREDIT akun Persediaan Produk Jadi ("KPrPJ").
+// Maka kita tambahkan sumarize Credit KPrPJ ke Beban.
+
+$hpp_dashboard = 0;
+// Cari ID KPrPJ
+$qK = mysqli_query($koneksi, "SELECT id FROM akun WHERE nama_akun LIKE 'KPrPJ%' LIMIT 1");
+if (mysqli_num_rows($qK) > 0) {
+  $rK = mysqli_fetch_assoc($qK);
+  $id_kprpj = $rK['id'];
+
+  $w_jurnal = "";
+  if ($bulan != '')
+    $w_jurnal .= " AND MONTH(j.tanggal)='$bulan'";
+  if ($tahun != '')
+    $w_jurnal .= " AND YEAR(j.tanggal)='$tahun'";
+
+  $qHPP = mysqli_query($koneksi, "
+        SELECT SUM(jd.kredit) as total_kredit
+        FROM jurnal_detail jd
+        JOIN jurnal j ON jd.jurnal_id = j.id
+        WHERE jd.akun_id = $id_kprpj $w_jurnal
+    ");
+  $rHPP = mysqli_fetch_assoc($qHPP);
+  $hpp_dashboard = $rHPP['total_kredit'] ?? 0;
+}
+
+// Hitung Beban Pajak terpisah
+$pajak_dashboard = 0;
+foreach ($tax_accounts as $tx) {
+  if ($tx_acc = mysqli_fetch_assoc(mysqli_query($koneksi, "SELECT kode_final, tipe_akun FROM akun WHERE nama_akun='$tx'"))) {
+    $pajak_dashboard += get_saldo($koneksi, $tx_acc['kode_final'], $bulan, $tahun, $tx_acc['tipe_akun']);
+  }
+}
+
+$beban = $beban_ops + $hpp_dashboard + $pajak_dashboard;
+
 $laba = $pendapatan - $beban;
 $aset = total_by_tipe($koneksi, 'Aset', $bulan, $tahun);
 $liab = total_by_tipe($koneksi, 'Liabilitas', $bulan, $tahun);
@@ -111,9 +164,35 @@ $beban_bulan = [];
 $laba_bulan = [];
 for ($i = 1; $i <= 12; $i++) {
   $labels[] = date('F', mktime(0, 0, 0, $i, 1));
-  $pendapatan_bulan[] = total_by_tipe($koneksi, 'Pendapatan', $i, $tahun);
-  $beban_bulan[] = total_by_tipe($koneksi, 'Beban', $i, $tahun);
-  $laba_bulan[] = $pendapatan_bulan[$i - 1] - $beban_bulan[$i - 1];
+  $pend_bln = total_by_tipe($koneksi, 'Pendapatan', $i, $tahun);
+  $beban_ops_bln = total_by_tipe($koneksi, 'Beban', $i, $tahun, $exclude_beban);
+
+  // Calculate HPP Month
+  $hpp_bln = 0;
+  if (isset($id_kprpj)) {
+    $qHPP_bln = mysqli_query($koneksi, "
+        SELECT SUM(jd.kredit) as total_kredit
+        FROM jurnal_detail jd
+        JOIN jurnal j ON jd.jurnal_id = j.id
+        WHERE jd.akun_id = $id_kprpj AND MONTH(j.tanggal)='$i' AND YEAR(j.tanggal)='$tahun'
+    ");
+    $rHPP_bln = mysqli_fetch_assoc($qHPP_bln);
+    $hpp_bln = $rHPP_bln['total_kredit'] ?? 0;
+  }
+
+  // Calculate Tax Month
+  $pajak_bln = 0;
+  foreach ($tax_accounts as $tx) {
+    if ($tx_acc = mysqli_fetch_assoc(mysqli_query($koneksi, "SELECT kode_final, tipe_akun FROM akun WHERE nama_akun='$tx'"))) {
+      $pajak_bln += get_saldo($koneksi, $tx_acc['kode_final'], $i, $tahun, $tx_acc['tipe_akun']);
+    }
+  }
+
+  $total_beban_bln = $beban_ops_bln + $hpp_bln + $pajak_bln;
+
+  $pendapatan_bulan[] = $pend_bln;
+  $beban_bulan[] = $total_beban_bln;
+  $laba_bulan[] = $pend_bln - $total_beban_bln;
 }
 // total debit dan kredit
 if ($tahun == '2024') {
@@ -309,6 +388,7 @@ if ($tahun == '2024') {
       <div>
         <h3 class="mb-1">Dashboard Overview</h3>
         <p class="text-muted mb-0">Ringkasan kesehatan keuangan Anda hari ini.</p>
+        <small class="text-danger fw-bold">* Angka disajikan dalam Jutaan Rupiah</small>
       </div>
       <div class="d-flex gap-2">
         <div class="bg-white px-3 py-2 rounded-pill shadow-sm text-sm fw-bold border">
