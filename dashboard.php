@@ -104,7 +104,12 @@ function total_by_tipe($koneksi, $tipe, $bulan, $tahun, $exclude = [])
 // Data utama
 $pendapatan = total_by_tipe($koneksi, 'Pendapatan', $bulan, $tahun);
 
-$exclude_beban = ['KOP', 'KPrPT', 'Beban Pokok Pendapatan', 'Beban pajak', 'Pajak penghasilan'];
+$exclude_beban = ['KOP', 'KPrPT', 'Beban pajak', 'Pajak penghasilan'];
+// Logic Khusus: Untuk 2024, Beban Pokok Pendapatan dimasukkan (Included). Untuk tahun lain (2025), dikecualikan.
+if ($tahun != '2024') {
+  $exclude_beban[] = 'Beban Pokok Pendapatan';
+}
+
 $tax_accounts = ['Beban pajak', 'Pajak penghasilan'];
 
 $beban_ops = total_by_tipe($koneksi, 'Beban', $bulan, $tahun, $exclude_beban);

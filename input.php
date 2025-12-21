@@ -263,7 +263,7 @@ while ($row = mysqli_fetch_assoc($akun)) {
                             <div class="col-md-4">
                                 <label class="form-label">Tanggal Transaksi</label>
                                 <input type="date" name="tgl" class="form-control" required min="2025-01-01"
-                                    value="<?= date('Y-m-d') ?>">
+                                    max="2025-12-31" value="<?= date('Y-m-d') ?>">
                             </div>
                             <div class="col-md-8">
                                 <label class="form-label">Deskripsi Umum</label>
