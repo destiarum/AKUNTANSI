@@ -101,10 +101,39 @@ function total_by_tipe($koneksi, $tipe, $bulan, $tahun, $exclude = [])
   return $t;
 }
 
+// Helper untuk menghitung net movement transaksi (Debit - Kredit)
+function get_trx_net_change_dash($koneksi, $keyword, $bulan, $tahun)
+{
+  $w = "";
+  if ($bulan != '')
+    $w .= " AND MONTH(j.tanggal)='$bulan'";
+  if ($tahun != '')
+    $w .= " AND YEAR(j.tanggal)='$tahun'";
+
+  $q = mysqli_query($koneksi, "SELECT id FROM akun WHERE nama_akun LIKE '%$keyword%'");
+  $net = 0;
+  while ($r = mysqli_fetch_assoc($q)) {
+    $qTrx = mysqli_query($koneksi, "
+            SELECT SUM(jd.debit) d, SUM(jd.kredit) k 
+            FROM jurnal_detail jd
+            JOIN jurnal j ON jd.jurnal_id = j.id
+            WHERE jd.akun_id={$r['id']} $w
+        ");
+    $row = mysqli_fetch_assoc($qTrx);
+    $net += ($row['d'] - $row['k']);
+  }
+  return $net;
+}
+
 // Data utama
 $pendapatan = total_by_tipe($koneksi, 'Pendapatan', $bulan, $tahun);
 
-$exclude_beban = ['KOP', 'KPrPT', 'Beban Pokok Pendapatan', 'Beban pajak', 'Pajak penghasilan'];
+$exclude_beban = ['KOP', 'KPrPT', 'Beban pajak', 'Pajak penghasilan'];
+// Logic Khusus: Untuk 2024, Beban Pokok Pendapatan dimasukkan (Included). Untuk tahun lain (2025), dikecualikan.
+if ($tahun != '2024') {
+  $exclude_beban[] = 'Beban Pokok Pendapatan';
+}
+
 $tax_accounts = ['Beban pajak', 'Pajak penghasilan'];
 
 $beban_ops = total_by_tipe($koneksi, 'Beban', $bulan, $tahun, $exclude_beban);
@@ -152,10 +181,56 @@ $aset = total_by_tipe($koneksi, 'Aset', $bulan, $tahun);
 $liab = total_by_tipe($koneksi, 'Liabilitas', $bulan, $tahun);
 $ekui = total_by_tipe($koneksi, 'Ekuitas', $bulan, $tahun);
 
-// Arus kas (simulasi sederhana)
-$arus_operasi = $laba;
-$arus_investasi = -($aset * 0.15);
-$arus_pendanaan = $ekui;
+// Arus Kas (Real Logic mirroring Laporan.php)
+// 1. Aktivitas Operasi
+$arus_op_laba = $laba;
+// Depresiasi
+$qDep = mysqli_query($koneksi, "SELECT id FROM akun WHERE nama_akun LIKE 'Beban Penyusutan%'");
+$arus_op_depresiasi = 0;
+while ($rD = mysqli_fetch_assoc($qDep)) {
+  // We reuse logic similar to get_trx_net_change_dash but specific for this loop if needed, 
+  // or just use get_trx_net_change_dash if we can pass ID. But get_trx_net_change_dash uses LIKE keyword.
+  // Let's manually do it here to be safe and precise with IDs from the loop.
+  $w = "";
+  if ($bulan != '')
+    $w .= " AND MONTH(j.tanggal)='$bulan'";
+  if ($tahun != '')
+    $w .= " AND YEAR(j.tanggal)='$tahun'";
+
+  $qTrx = mysqli_query($koneksi, "SELECT SUM(jd.debit) d, SUM(jd.kredit) k FROM jurnal_detail jd JOIN jurnal j ON jd.jurnal_id=j.id WHERE jd.akun_id={$rD['id']} $w");
+  $rTrx = mysqli_fetch_assoc($qTrx);
+  $arus_op_depresiasi += ($rTrx['d'] - $rTrx['k']);
+}
+
+$chg_piutang = get_trx_net_change_dash($koneksi, "Piutang", $bulan, $tahun);
+$chg_persediaan = get_trx_net_change_dash($koneksi, "Persediaan", $bulan, $tahun);
+$chg_utang = get_trx_net_change_dash($koneksi, "Utang Usaha", $bulan, $tahun);
+
+// Rumus Operasi: Laba + Depresiasi - KenaikanAset(Piutang+Persediaan) + KenaikanLiabilitas(Utang)
+// Note: Kenaikan Liabilitas (Credit > Debit) means Net Change (D-K) is negative. We want to ADD it. So -1 * (D-K).
+// Kenaikan Aset (Debit > Credit) means Net Change (D-K) is positive. We want to SUBTRACT it. So - (D-K).
+$arus_operasi = $arus_op_laba + $arus_op_depresiasi - $chg_piutang - $chg_persediaan + (-1 * $chg_utang);
+
+
+// 2. Aktivitas Investasi
+$invest_keywords = ['Peralatan', 'Mesin', 'Gedung', 'Tanah', 'Kendaraan', 'Inventaris'];
+$arus_invest_net = 0;
+foreach ($invest_keywords as $kw) {
+  $arus_invest_net += get_trx_net_change_dash($koneksi, $kw, $bulan, $tahun);
+}
+$arus_investasi = -1 * $arus_invest_net;
+
+
+// 3. Aktivitas Pendanaan
+$chg_utang_bank = get_trx_net_change_dash($koneksi, "Utang Bank", $bulan, $tahun);
+$chg_modal = get_trx_net_change_dash($koneksi, "Modal", $bulan, $tahun); // Matches 'Modal' generic or 'Modal Saham'
+$chg_dividen = get_trx_net_change_dash($koneksi, "Dividen", $bulan, $tahun);
+
+$flow_utang = -1 * $chg_utang_bank;
+$flow_modal = -1 * $chg_modal;
+$flow_dividen = -1 * $chg_dividen;
+
+$arus_pendanaan = $flow_utang + $flow_modal + $flow_dividen;
 
 // Data garis untuk tren tiap bulan
 $labels = [];
