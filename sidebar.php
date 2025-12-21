@@ -3,7 +3,7 @@
     .sidebar {
         width: 260px;
         height: 100vh;
-        background: linear-gradient(180deg, #1a237e 0%, #283593 100%);
+        background: linear-gradient(180deg, #b71c1c 0%, #1a237e 40%, #283593 100%);
         color: white;
         position: fixed;
         left: 0;
@@ -17,21 +17,31 @@
 
     .sidebar-header {
         text-align: center;
-        margin-bottom: 40px;
+        margin-bottom: 30px;
         padding-bottom: 20px;
         border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 10px;
+    }
+
+    .sidebar-logo {
+        width: 80px;
+        height: auto;
+        display: block;
+        margin-bottom: 5px;
     }
 
     .sidebar h2 {
         margin: 0;
-        font-size: 24px;
+        font-size: 13px;
         font-weight: 700;
-        letter-spacing: 1px;
+        letter-spacing: 0.5px;
         color: white !important;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        gap: 10px;
+        text-align: center;
+        line-height: 1.4;
+        max-width: 200px;
     }
 
     .sidebar ul {
@@ -168,7 +178,8 @@ $current_page = basename($_SERVER['PHP_SELF']);
 
 <div class="sidebar">
     <div class="sidebar-header">
-        <h2><i class="fas fa-wallet"></i> FINANCE</h2>
+        <img src="assets/img/logo_indocement.png" alt="PT Indocement" class="sidebar-logo">
+        <h2>PT INDOCEMENT TUNGGAL PRAKARSA Tbk</h2>
     </div>
 
     <ul>

@@ -191,8 +191,7 @@ if (isset($_SESSION['username'])) {
         <div class="login-card animate__animated animate__fadeInUp">
             <div class="login-header">
                 <div class="mb-3">
-                    <i class="fas fa-wallet fa-3x text-primary"
-                        style="background: -webkit-linear-gradient(#1a237e, #283593); -webkit-background-clip: text; -webkit-text-fill-color: transparent;"></i>
+                    <img src="assets/img/logo_indocement.png" alt="Logo Indocement" style="width: 80px; height: auto;">
                 </div>
                 <h3>Welcome Back</h3>
                 <p>Please enter your details to sign in.</p>
