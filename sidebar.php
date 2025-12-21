@@ -154,7 +154,7 @@
         }
     }
 </style>
-
+<link rel="stylesheet" href="darkmode.css">
 <?php
 // Dapatkan nama file saat ini untuk penanda aktif
 $current_page = basename($_SERVER['PHP_SELF']);
@@ -208,7 +208,10 @@ $current_page = basename($_SERVER['PHP_SELF']);
             </a>
         </li>
     </ul>
-
+    <button id="theme-toggle" class="btn btn-outline-secondary w-100 d-flex align-items-center justify-content-center mb-3 py-2">
+        <i class="fas fa-moon me-2"></i>
+        <span>Mode Gelap</span>
+    </button>
     <div class="sidebar-footer">
         <a href="logout.php" class="text-danger fw-bold"
             style="background: rgba(255,0,0,0.1); color: #ff8a80 !important">
@@ -216,7 +219,7 @@ $current_page = basename($_SERVER['PHP_SELF']);
         </a>
     </div>
 </div>
-
+<script src="darkmode.js"></script>
 <script>
     function toggleSidebar() {
         const sidebar = document.querySelector('.sidebar');

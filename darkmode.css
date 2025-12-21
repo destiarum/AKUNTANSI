@@ -1,0 +1,256 @@
+
+:root {
+  --body-bg: #f8f9fa;
+  --card-bg: #ffffff;
+  --text-color: #344767;
+  --border-color: #f0f2f5;
+  --input-bg: #ffffff;
+  --sidebar-bg: #ffffff;
+}
+
+.dark-mode {
+  --body-bg: #121212;         /* Background Belakang Hitam */
+  --card-bg: #2d2d2d;         /* Card Abu-abu Gelap (Surface) */
+  --sidebar-bg: #2d2d2d;      
+  --text-color: #ececec;      /* Teks Putih Gading */
+  --border-color: #404040;    
+  --input-bg: #3a3a3a;        /* Input Field */
+}
+
+/* --- 2. GLOBAL RESET --- */
+html, body {
+  background-color: var(--body-bg) !important;
+  color: var(--text-color) !important;
+}
+
+/* Reset Judul agar Putih & Hapus Background Aneh */
+.dark-mode h1, .dark-mode h2, .dark-mode h3, 
+.dark-mode h4, .dark-mode h5, .dark-mode h6 {
+  color: #ffffff !important;
+  background-color: transparent !important; /* Hapus background judul */
+}
+
+.dark-mode p, .dark-mode span, .dark-mode div, .dark-mode label {
+  color: var(--text-color);
+}
+
+/* Helper Bootstrap - Hapus background putih/light bawaan */
+.dark-mode .bg-white, 
+.dark-mode .bg-light,
+.dark-mode .card, 
+.dark-mode .main,
+.dark-mode .header { 
+  background-color: var(--card-bg) !important; 
+  color: var(--text-color) !important;
+  border-color: var(--border-color) !important;
+}
+
+.dark-mode .text-dark { color: #e0e0e0 !important; }
+.dark-mode .text-muted { color: #b0b0b0 !important; }
+
+
+/* --- 3. FIX WARNA TEKS (MENGHAPUS KOTAK BACKGROUND DI JUDUL) --- */
+
+/* Teks Biru (Primary) - Cuma ubah warna font */
+.dark-mode .text-primary {
+  color: #448aff !important;
+  background: none !important; /* Hapus background biru */
+  border: none !important;
+}
+
+/* Teks Merah (Danger) */
+.dark-mode .text-danger {
+  color: #ff5252 !important;
+  background: none !important;
+  border: none !important;
+}
+
+/* Teks Hijau & Lainnya */
+.dark-mode .text-success { color: #69f0ae !important; background: none !important; }
+.dark-mode .text-info { color: #40c4ff !important; background: none !important; }
+.dark-mode .text-warning { color: #ffd740 !important; background: none !important; }
+
+
+/* --- 4. BADGE & LABEL KATEGORI (YANG BOLEH PAKE BACKGROUND) --- */
+/* Kita target elemen badge secara spesifik agar background transparan neon */
+
+.dark-mode .badge, 
+.dark-mode span[class*="bg-"] {
+  border: 1px solid var(--border-color) !important;
+  box-shadow: none !important;
+}
+
+/* Aset (Hijau) */
+.dark-mode .badge.bg-success, .dark-mode .bg-aset, .dark-mode span[class*="bg-success"] {
+  background-color: rgba(76, 175, 80, 0.15) !important;
+  color: #81c784 !important;
+  border-color: #2e7d32 !important;
+}
+/* Liabilitas (Merah) */
+.dark-mode .badge.bg-danger, .dark-mode .bg-liabilitas, .dark-mode span[class*="bg-danger"] {
+  background-color: rgba(244, 67, 54, 0.15) !important;
+  color: #e57373 !important;
+  border-color: #c62828 !important;
+}
+/* Ekuitas (Biru) */
+.dark-mode .badge.bg-primary, .dark-mode .bg-ekuitas, .dark-mode span[class*="bg-primary"] {
+  background-color: rgba(33, 150, 243, 0.15) !important;
+  color: #64b5f6 !important;
+  border-color: #1565c0 !important;
+}
+.dark-mode .bg-pendapatan { background-color: rgba(255, 152, 0, 0.15) !important; color: #ffb74d !important; }
+.dark-mode .bg-beban { background-color: rgba(156, 39, 176, 0.15) !important; color: #ba68c8 !important; }
+
+
+/* --- 5. FIX LAPORAN & TABEL (MENGHANCURKAN STYLE INLINE PUTIH) --- */
+
+.dark-mode .table-responsive { background-color: var(--card-bg) !important; }
+
+/* Reset Tabel jadi Transparan */
+.dark-mode .table {
+  --bs-table-bg: transparent !important;
+  --bs-table-striped-bg: rgba(255, 255, 255, 0.03) !important;
+  --bs-table-hover-bg: rgba(255, 255, 255, 0.05) !important;
+  color: var(--text-color) !important;
+  border-color: var(--border-color) !important;
+}
+
+/* Paksa Header Tabel & Baris Laporan jadi Gelap */
+.dark-mode .table thead th,
+.dark-mode .table tr,
+.dark-mode .table td,
+.dark-mode .table th {
+  background-color: var(--card-bg) !important; /* Paksa ikut warna card */
+  color: var(--text-color) !important;
+  border-bottom: 1px solid var(--border-color) !important;
+}
+
+/* Header Tabel sedikit lebih terang */
+.dark-mode .table thead th {
+  background-color: var(--input-bg) !important; 
+  color: #ffffff !important;
+  border-bottom: 2px solid var(--border-color) !important;
+}
+
+/* Hover Effect */
+.dark-mode .table-hover > tbody > tr:hover > * {
+  background-color: var(--input-bg) !important;
+  color: #ffffff !important;
+}
+
+/* Footer Laporan (Saldo Akhir) */
+.dark-mode .saldo-row {
+  background-color: rgba(0, 0, 0, 0.2) !important;
+  border-top: 1px solid var(--border-color) !important;
+}
+
+/* --- TOMBOL AKSI TABEL (EDIT & HAPUS) --- */
+/* Background Gelap, TAPI Ikon Berwarna */
+
+.dark-mode .table .btn-light, 
+.dark-mode .table .btn-white,
+.dark-mode .table .btn {
+  background-color: var(--input-bg) !important;
+  border-color: #555 !important;
+  color: #fff !important; /* Default teks putih */
+}
+
+/* Balikin Warna Icon Edit (Pensil) -> Biru */
+.dark-mode .table .fa-pencil-alt, 
+.dark-mode .table .fa-edit, 
+.dark-mode .table .fa-pen {
+  color: #448aff !important;
+}
+
+/* Balikin Warna Icon Hapus (Sampah) -> Merah */
+.dark-mode .table .fa-trash, 
+.dark-mode .table .fa-trash-alt {
+  color: #ff5252 !important;
+}
+
+
+/* --- 6. SIDEBAR & INPUT --- */
+
+.dark-mode .sidebar {
+  background: var(--sidebar-bg) !important;
+  border-right: 1px solid var(--border-color);
+  box-shadow: 4px 0 10px rgba(0, 0, 0, 0.3) !important;
+}
+.dark-mode .sidebar a.active {
+  background: linear-gradient(135deg, #083EA8 0%, #3a7bd5 100%) !important;
+  color: white !important;
+}
+.dark-mode .sidebar a { color: #a0a0a0 !important; }
+.dark-mode .sidebar a:hover { color: #fff !important; }
+.dark-mode #theme-toggle { border-color: #555 !important; color: #e0e0e0 !important; }
+
+/* Input Fields */
+input, select, textarea, .form-control, .form-select {
+  background-color: var(--input-bg) !important;
+  color: var(--text-color) !important;
+  border-color: var(--border-color) !important;
+}
+.dark-mode input::placeholder, .dark-mode select::placeholder { 
+  color: #a0a0a0 !important; opacity: 1 !important; 
+}
+.dark-mode option { background-color: var(--input-bg) !important; color: white !important; }
+.dark-mode .input-group-text {
+  background-color: #444 !important; border-color: var(--border-color) !important; color: #ececec !important;
+}
+
+/* Tombol Submit & Total Box */
+.dark-mode button[type="submit"] {
+  background: linear-gradient(135deg, #083EA8 0%, #3a7bd5 100%) !important;
+  color: white !important;
+}
+.dark-mode .total-box {
+  background-color: var(--input-bg) !important;
+  border: 1px solid var(--border-color) !important;
+  color: #fff !important;
+}
+.dark-mode .total-box.text-danger { color: #ff5252 !important; }
+.dark-mode .total-box.text-primary { color: #448aff !important; }
+
+
+/* --- 7. MODAL & POPUP --- */
+
+/* Paksa Body Popup PHP jadi Gelap */
+.dark-mode body.modal-open, .dark-mode body { background-color: rgba(0,0,0,0.8) !important; }
+
+.dark-mode .modal-content, 
+.dark-mode .card {
+  background-color: var(--card-bg) !important;
+  border: 1px solid #444 !important;
+  color: #fff !important;
+}
+.dark-mode .modal-header, .dark-mode .modal-footer { border-color: var(--border-color) !important; }
+.dark-mode .btn-close { filter: invert(1) grayscale(100%) brightness(200%) !important; }
+.dark-mode .modal-body input, .dark-mode .modal-body select {
+  background-color: var(--input-bg) !important;
+  color: #fff !important;
+}
+
+
+/* --- 8. FIX BUKU BESAR (Header Putih & Filter) --- */
+
+.dark-mode .card-header-custom {
+  background-color: transparent !important;
+  border-bottom: 1px solid var(--border-color) !important;
+}
+.dark-mode .card-header-custom h6, 
+.dark-mode .card-header-custom .text-dark {
+  color: #ffffff !important;
+}
+.dark-mode .icon-shape.bg-light {
+  background-color: var(--input-bg) !important;
+  color: #448aff !important;
+}
+.dark-mode .btn-filter {
+  background-color: var(--input-bg) !important;
+  color: var(--text-color) !important;
+  border-color: var(--border-color) !important;
+}
+.dark-mode .btn-filter:hover, .dark-mode .btn-filter.active {
+  background-color: #344767 !important;
+  color: #ffffff !important;
+}
